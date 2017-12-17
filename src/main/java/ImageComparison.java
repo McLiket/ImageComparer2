@@ -8,10 +8,8 @@ import com.mongodb.client.MongoDatabase;
 import org.apache.commons.io.FileUtils;
 import org.bson.Document;
 import DataStructure.*;
+import org.bson.types.ObjectId;
 import org.im4java.core.*;
-import org.im4java.process.ArrayListOutputConsumer;
-import org.im4java.process.OutputConsumer;
-import org.im4java.process.ProcessStarter;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,12 +42,19 @@ public class ImageComparison {
         if(!ResizeImagesToBeAbleToDoCompare(toDo, base))
             return false;
 
-        //ad not compare area
-        //compare
-        //save to database
+        if(!AddComparingAreas(toDo, base))
+            return false;
+
+        if(CompareImages(toDo, base)){
+            return false;
+        }
+
+        SaveTestResultToDB();
+
 
         return true;
     }
+
 
 
     private ToDo FetchTodo(){
@@ -142,7 +147,7 @@ public class ImageComparison {
             }
         }
         try {
-            FileUtils.copyFile(toDoFile, wipBaselineFile);
+            FileUtils.copyFile(baselineFile, wipBaselineFile);
         }
         catch (IOException e){
             System.out.println("something went wrong when trying to copy file to WIP folder " + e.toString());
@@ -179,29 +184,35 @@ public class ImageComparison {
         return true;
     }
     private boolean ResizeImagesToBeAbleToDoCompare(ToDo todo, BaseLine bl) {
+        //if x size differs
         if(todo.SizeX != bl.SizeX){
-            if(todo.SizeX < bl.SizeX){
-                ResizeImage(new File(Configuration.PathToWorkingArea+"//toDo.png"), bl.SizeX, todo.SizeY);
+            if(todo.SizeX < bl.SizeX)
+                if(!ResizeImage(new File(Configuration.PathToWorkingArea+"//toDo.png"), bl.SizeX, todo.SizeY))
+                    return false;
+            else
+                if(!ResizeImage(new File(Configuration.PathToWorkingArea+"//bl.png"), todo.SizeX, bl.SizeY))
+                    return false;
+        }
+        //if y size differ
+        if(todo.SizeY != bl.SizeY){
+            if(todo.SizeY < bl.SizeY){
+                if(!ResizeImage(new File(Configuration.PathToWorkingArea+"//toDo.png"), todo.SizeX, bl.SizeY))
+                    return false;
             }
             else
-                ResizeImage(new File(Configuration.PathToWorkingArea+"//"+ bl.TestName), todo.SizeX, bl.SizeY);
+                if(!ResizeImage(new File(Configuration.PathToWorkingArea+"//bl.png"), bl.SizeX, todo.SizeY))
+                    return false;
         }
-        if(todo.SizeY != bl.SizeY){
-
-        }
-
 
         return true;
     }
 
     private boolean ResizeImage(File f, int x, int y){
-
         ConvertCmd cmd = new ConvertCmd();
-
         IMOperation op = new IMOperation();
         op.addImage(f.getAbsolutePath());
-        op.resize(x,y);
-        //op.addImage(f.getAbsolutePath());
+        op.extent(x,y);
+        op.addImage(f.getAbsolutePath());
         try {
             cmd.run(op);
         }
@@ -210,6 +221,103 @@ public class ImageComparison {
             return false;
         }
         return true;
+    }
+
+    private boolean AddComparingAreas(ToDo toDo, BaseLine base) {
+        MongoCollection<Document> compAreas = Database.getCollection("CompareArea");
+        if(compAreas.count() == 0)
+            return true;
+        for(String id : base.CompAreaIds){
+            BasicDBObject whereQuery = new BasicDBObject();
+            whereQuery.put("_id", new ObjectId(id));
+            Document result = compAreas.find(whereQuery).first();
+            if(result ==  null|| result.size() == 0){
+                System.out.println("Found a comp area id that did not have a comp area row in the db: " + id);
+                return false;
+            }
+            Gson g = new Gson();
+            CompareArea ca =  g.fromJson(result.toJson(), CompareArea.class);
+
+            File blFile = new File(Configuration.PathToWorkingArea+"//bl.png");
+            File toDoFile = new File(Configuration.PathToWorkingArea+"//toDo.png");
+
+            if(ca.Pos == CompareArea.Position.Absolute){
+                if(!DrawRectangle(blFile, ca.FromPosX, ca.FromPosY, ca.Width, ca.Height)
+                || !DrawRectangle(toDoFile, ca.FromPosX, ca.FromPosY, ca.Width, ca.Height))
+                    return false;
+            }
+        }
+        return true;
+
+    }
+
+    private boolean DrawRectangle(File f, int x, int y, int w, int h) {
+        ConvertCmd cmd = new ConvertCmd();
+        IMOperation op = new IMOperation();
+        op.addImage(f.getAbsolutePath());
+        op.fill("Cyan");
+        String text = "rectangle "+ x+","+y+" "+(x+w)+","+(y+h);
+        op.draw(text);
+        op.addImage(f.getAbsolutePath());
+        try{
+            cmd.run(op);
+        }
+        catch (Exception e){
+            System.out.println("Failed to draw area on image + " + e);
+            return false;
+        }
+        return true;
+    }
+
+    private boolean CompareImages(ToDo todo, BaseLine bl) {
+        File todoFile = new File(Configuration.PathToWorkingArea+"//toDo.png");
+        File blFile = new File(Configuration.PathToWorkingArea+"//bl.png");
+        File resultFile = new File(Configuration.PathToWorkingArea+"//diff.png");
+
+        CompareCmd cmd = new CompareCmd();
+        IMOperation op = new IMOperation();
+        op.highlightColor("Magenta");
+        op.lowlightColor("transparent");
+        op.addImage(todoFile.getAbsolutePath());
+        op.addImage(blFile.getAbsolutePath());
+        op.compose("src");
+        op.colorspace("sRGB");
+        op.addImage(resultFile.getAbsolutePath());
+
+        try {
+            cmd.run(op);
+        }
+        catch (CommandException e){
+            //0 = diff
+            //-1 = no diff
+            if(e.getReturnCode() == 0){
+                todo.HadDiff = true;
+            }
+            else if(e.getReturnCode() == 1){
+                todo.HadDiff = false;
+            }
+            else{
+                System.out.println("The comparison ended with response code (Fail) "+e);
+                return false;
+            }
+
+        }
+        catch (InterruptedException e){
+            return false;
+        }
+        catch (IM4JavaException e){
+            return false;
+        }
+        catch (IOException e){
+            return false;
+        }
+        return true;
+    }
+
+    private void SaveTestResultToDB() {
+        //fetch testresult from before
+        //update
+        //if not found the remove
     }
 
 

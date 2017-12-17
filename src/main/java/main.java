@@ -1,10 +1,13 @@
 
 import DataStructure.BaseLine;
+import DataStructure.CompareArea;
 import com.google.gson.Gson;
 import com.mongodb.MongoClient;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
+
+import java.util.ArrayList;
 
 public class main {
 
@@ -13,7 +16,23 @@ public class main {
         MongoClient mongoClient = new MongoClient();
         MongoDatabase Database = mongoClient.getDatabase("testDB");
 
-        System.out.println("Connection successful");
+
+
+
+        /*
+        Gson g = new Gson();
+        MongoCollection<Document> coll = Database.getCollection("CompareArea");
+        CompareArea one1 = new CompareArea();
+        one1.FromPosX = 175;
+        one1.FromPosY = 200;
+        one1.Height = 50;
+        one1.Width = 50;
+        one1.Pos = CompareArea.Position.Absolute;
+
+
+        Document d = Document.parse(g.toJson(one1));
+        coll.insertOne(d);
+        */
 
         /*
         Gson g = new Gson();
@@ -27,7 +46,9 @@ public class main {
 
         one1.TestURL = "http://www.hej.com";
         one1.ImageName = "1.png";
-
+        ArrayList<String> array = new ArrayList<String>();
+        array.add("5a368a5553b9ad2594d9b732");
+        one1.CompAreaIds = array;
 
         Document d = Document.parse(g.toJson(one1));
         coll.insertOne(d);

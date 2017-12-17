@@ -12,4 +12,5 @@ public class ToDo {
     public String ImageName;
     public int SizeX;
     public int SizeY;
+    public boolean HadDiff = false;
 }
